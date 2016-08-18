@@ -1,60 +1,91 @@
 ﻿Function Export-StructuralUnitTestFromCommand {
-	param(
-		[parameter(Mandatory=$true,ValueFromPipelineByPropertyName = $true,ValueFromPipeline = $true)]
-		[System.Management.Automation.CommandInfo[]]
-		$command
-	)
-	begin {
-		$strBldr = new-object System.Text.StringBuilder
-	}
-	process {
-		foreach ($cmd in $command)
-		{
-			$null = $strBldr.Clear()
-			$cmdName = $cmd.Name
-			$parameters = $cmd.Parameters
-			$parameterSets = $cmd.ParameterSets
-			$visibility = $cmd.Visibility
-			$DefaultParameterSet = $cmd.DefaultParameterSet
-			
-			#region Testing Output Type
-			if($outputType = $cmd.OutputType) {
-			foreach ($outType in $OutputType.Type ) #You may have more than one output type
-			{
-			$outTypeName = $outType.ToString()
-				$null = $strBldr.AppendLine(@"
-	It 'has an output type of $outTypeName' {
-		(Get-Command '$cmdName').OutputType.Type -contains [$outTypeName] | should be `$true
-	}
+    param(
+        [parameter(Mandatory=$true,ValueFromPipelineByPropertyName = $true,ValueFromPipeline = $true)]
+        [System.Management.Automation.CommandInfo[]]
+        $command
+    )
+    begin {
+        $stringBuilder = New-object -TypeName System.Text.StringBuilder
+        $BuiltInParameters = ([Management.Automation.PSCmdlet]::CommonParameters + [Management.Automation.PSCmdlet]::OptionalCommonParameters)
+    }
+    process {
+        
+        foreach ($cmd in $command)
+        {
+        $null = $stringBuilder.Clear()
+        $cmdName = $cmd.Name
+        $cmdDefaultParameterSet = $cmd.DefaultParameterSet
+
+        $null = $stringBuilder.AppendLine(@"
+Describe '$cmdName' {
+    #getting Command Metadata
+    `$command = (Get-Command '$cmdName')
+
+    It 'has $cmdDefaultParameterSet as Default parameterSet' {
+        `$command.defaultParameterSet | Should be '$cmdDefaultParameterSet'
+    }
 "@)
-			 
-			}
-			}
-			#endregion
-			
-			#region Testing parameter Name/Type
-			$uncommonParams = $parameters.keys | Where-Object { $_ -notin [System.Management.Automation.PSCmdlet]::CommonParameters -and $_ -notin [System.Management.Automation.PSCmdlet]::OptionalCommonParameters}
-			foreach ($parameterKey in $uncommonParams)
-			{
-				$parameterType = $parameters[$parameterKey].ParameterType
-				if($parameterType) { 
-					$parameterTypeName = $parameterType.ToString()
-					$null = $strBldr.AppendLine(@"
-	It 'accept parameter name $($parameters[$parameterKey].Name) as type $($parameters[$parameterKey].ParameterType.ToString())' {
-		(Get-Command '$cmdName').Parameters['$parameterKey'].ParameterType.ToString() | should be $parameterTypeName
-	}
+
+        $outputTypes = $cmd.OutputType
+        foreach ($outputType in $outputTypes)
+        {
+            $outputTypeName = $outputType.Name
+            #It 'Output the Type $outputType'
+            $null = $stringBuilder.AppendLine(@"
+    It 'contains an outputType of Type $outputTypeName' {
+        `$command.OutputType.Type -contains [$outputTypeName] | should be `$true
+    }
+
 "@)
-				}
-			}
-			#endregion
-			
-			
-			if($strBldr.ToString() -ne [string]::Empty) {
-				$null = $strBldr.insert(0,"Describe '$cmdName' {`r`n ")
-				$null = $strBldr.AppendLine('}')
-				Write-Output $strBldr.ToString()
-			}
-		}
-	}
-	
+        }
+
+        $parameterSets = $cmd.ParameterSets
+        foreach ($ParameterSet in $parameterSets)
+        {
+            $ParameterSetName = $ParameterSet.Name
+            $null = $stringBuilder.AppendLine(@"
+    Context 'ParameterSetName $ParameterSetName' {
+
+        It 'has a parameter Set of Name $ParameterSetName' {
+            `$command.ParameterSets.Name -contains '$ParameterSetName' | Should be $true
+        }
+        `$ParameterSet = `$command.ParameterSets | Where-Object { `$_.'Name' -eq '$ParameterSetName' }
+"@)
+            $parameters = $ParameterSet.Parameters | Where-Object { $_.Name -notin $BuiltInParameters}
+            foreach ($parameter in $parameters)
+            {
+                $ParameterName = $parameter.Name
+                $TypeName = $parameter.ParameterType.ToString()
+                $isMandatory = $parameter.isMandatory
+                $ValueFromPipeline = $parameter.ValueFromPipeline
+                $ValueFromPipelineByPropertyName = $parameter.ValueFromPipelineByPropertyName
+                $ValueFromRemainingArguments = $parameter.ValueFromRemainingArguments
+                $Position = $parameter.Position
+
+                $null = $stringBuilder.AppendLine(@"
+        
+        `$Parameter = `$ParameterSet.Parameters | Where-Object { `$_.'Name' -eq '$ParameterName' }
+
+        It 'has compatible parameter $ParameterName' {
+            `$Parameter | Should Not BeNullOrEmpty
+            `$Parameter.ParameterType.ToString() | Should be $TypeName
+            `$Parameter.IsMandatory | Should be `$$([bool]$isMandatory)
+            `$Parameter.ValueFromPipeline | Should be `$$([bool]$ValueFromPipeline)
+            `$Parameter.ValueFromPipelineByPropertyName | Should be `$$([bool]$ValueFromPipelineByPropertyName)
+            `$Parameter.ValueFromRemainingArguments | Should be `$$([bool]$ValueFromRemainingArguments)
+            `$Parameter.Position | Should be $Position
+        }
+"@)
+                }
+
+            #Closing Context block
+            $null = $stringBuilder.AppendLine('    }')
+            }
+
+   #Closing Describe Statement
+        $null = $stringBuilder.AppendLine('}')
+        Write-Output $stringBuilder.ToString()
+        }
+    }   
+    
 }
